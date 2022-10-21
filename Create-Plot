@@ -1,0 +1,123 @@
+#import data
+import warnings
+warnings.filterwarnings('ignore')
+
+pip install swifter
+
+pip install "pytextrank < 3"
+
+import gdown
+import zipfile
+
+import pandas as pd 
+import scattertext as st
+import swifter
+import spacy 
+import pytextrank
+import numpy as np 
+import codecs
+from bs4 import BeautifulSoup
+
+#read data
+
+df = pd.read_pickle('Data/processed_train_data.pkl')
+
+#visualize-data
+
+df.tweets = df.tweets.swifter.apply(lambda text: ' '.join(text))
+
+Pandas Apply:   0%|          | 0/3600 [00:00<?, ?it/s]
+
+# Create the parse feature to feed the class st.CorpusFromParsedDocuments later 
+
+df['parse'] = df.tweets.swifter.apply(st.whitespace_nlp_with_sentences)
+
+corpus = st.CorpusFromParsedDocuments(df, category_col='gender', parsed_col='parse'
+                                     ).build().get_unigram_corpus()
+                                     
+
+# Reduce the number of phrases displayed in the chart to 2000 
+
+corpus = corpus.compact(st.AssociationCompactor(2000))
+
+html = st.produce_scattertext_explorer(
+    corpus,
+    category='female', category_name='Female', not_category_name='Male',
+    minimum_term_frequency=0, pmi_threshold_coefficient=0,
+    width_in_pixels=1000, metadata=corpus.get_df()['country'],
+    transform=st.Scalers.dense_rank
+    )
+
+open('./tweets_gender.html', 'w').write(html)
+
+#visualizing phrase-associations
+
+nlp = spacy.load('en_core_web_sm')
+
+df = df.assign(parse=lambda data: data.tweets.apply(nlp))
+
+corpus = st.CorpusFromParsedDocuments(
+    df,
+    category_col='gender',
+    parsed_col='parse',
+    feats_from_spacy_doc=st.PyTextRankPhrases()
+).build(
+).compact(
+    st.AssociationCompactor(2000, use_non_text_features=True)
+)
+
+term_category_scores = corpus.get_metadata_freq_df('')
+term_category_scores.head(10)
+
+# Get the rank of each term in each category
+term_ranks = np.argsort(np.argsort(-term_category_scores, axis=0), axis=0) + 1
+
+# Text displayed when a term is clicked
+metadata_descriptions = {
+    term: '<br/>' + '<br/>'.join(
+        '<b>%s</b> TextRank score rank: %s/%s' % (cat, term_ranks.loc[term, cat], corpus.get_num_metadata())
+        for cat in corpus.get_categories())
+    for term in corpus.get_metadata()
+}
+
+category_specific_prominence = term_category_scores.apply(
+    lambda r: r.female if r.female > r.male else -r.male,
+    axis=1
+)
+
+category_specific_prominence
+
+html = st.produce_scattertext_explorer(
+    corpus,
+    category='female',
+    not_category_name='male',
+    minimum_term_frequency=0,
+    pmi_threshold_coefficient=0,
+    width_in_pixels=1000,
+    transform=st.dense_rank,
+    metadata=corpus.get_df()['country'],
+    scores=category_specific_prominence,
+    sort_by_dist=False,
+    use_non_text_features=True,
+    topic_model_term_lists={term: [term] for term in corpus.get_metadata()},
+    topic_model_preview_size=0,
+    metadata_descriptions=metadata_descriptions,
+    use_full_doc=True
+)
+
+open('./tweets_gender_textrank.html', 'w').write(html)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
