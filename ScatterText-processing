@@ -1,0 +1,183 @@
+#import data
+
+import gdown
+import csv
+
+import pandas as pd 
+import numpy as np
+import os
+from os import listdir
+from os.path import isfile, join
+import xml.etree.ElementTree as ET
+import pickle
+
+import re
+import string
+import emoji
+
+import spacy
+import nltk
+from nltk.tokenize import TweetTokenizer
+from gensim.parsing.preprocessing import STOPWORDS as SW
+from wordcloud import STOPWORDS
+stopwords = set(STOPWORDS)
+
+#read-data
+
+path_train = 'Data/train/en'
+path_test = 'Data/test/en'
+
+tweets_train = [f for f in listdir(path_train) if isfile(join(path_train, f))]
+tweets_test = [f for f in listdir(path_test) if isfile(join(path_test, f))]
+
+for r in ET.parse(join(path_train,tweets_train[6])).getroot()[0]:
+    print(r.text)
+
+#ET.parse converts the file into the tree
+
+def convert_texts(path_train, files_train):
+    
+    doc = []
+    for i in range(len(files_train)):
+        #Append the tweets to the corresponding document
+        try:
+            doc1 =[r.text for r in ET.parse(join(path_train,files_train[i])).getroot()[0]]
+            doc.append(' '.join(t for t in doc1))
+        except:
+            pass 
+    return doc 
+
+# list of train and test tweets
+
+t_train = convert_texts(path_train, tweets_train)
+t_test  = convert_texts(path_test, tweets_test)
+
+#labels
+def get_labels(path, files):
+    dic={}
+    task=[[],[]]
+    for e in open(join(path,'truth.txt')).read().split('\n'):
+        d=e.split(':::')
+        if(len(d)==3):
+            dic.update({d[0]: d[1:]})
+            task[0].append(d[1])
+            task[1].append(d[2])
+    task=[sorted(list(set(t))) for t in task]
+    
+    d_task = [{item:i for i, item in enumerate(t)} for t in task]
+    labels=[[],[]]
+
+    for e in files:
+        try:
+            ID=e[:-4]
+            labels[0].append(d_task[0][dic[ID][0]])
+            labels[1].append(d_task[1][dic[ID][1]])
+        except:
+            pass
+    print(d_task)
+    return np.array(labels)
+
+labels_train = get_labels(path_train, tweets_train)
+labels_test  = get_labels(path_test , tweets_test)
+labels_train.shape
+
+GENDER_MAP = {0:'female', 1: 'male'}
+COUNTRY_MAP = {0: 'australia', 1: 'canada', 2: 'great britain', 3: 'ireland', 4: 'new zealand', 5: 'united states'}
+
+#preprocessing
+
+replacement_patterns = [
+    #match url (i.e: https://t.co/5tF5G9VKtq)
+    (r'\w+:\/{2}[\d\w-]+(\.[\d\w-]+)*(?:(?:\/[^\s/]*))*', ''),
+
+    #match user (i.e: @cerpintor )
+    (r'@\w+', ''),
+
+    #match hashtag (i.e: #WomensMarchOnWashington)
+    (r'#\w+', ''),
+
+    #Replace "&..." with ''
+    (r'&\w+', '')
+]
+
+class RegexReplacer(object):
+    def __init__(self, patterns = replacement_patterns):
+        self.patterns = [(re.compile(regrex),repl) for (regrex, repl) in
+                        patterns]
+    
+    #Replace the words that match the patterns with replacement words
+    def replace(self, text):
+        s = text
+        for (pattern, repl) in self.patterns:
+            s = re.sub(pattern, repl, s)
+        return s
+
+def give_emoji_free_text(text):
+    """
+    Removes emoji's from tweets
+    Accepts:
+        Text (tweets)
+    Returns:
+        Text (emoji free tweets)
+    """
+    emoji_list = [c for c in text if c in emoji.UNICODE_EMOJI]
+    clean_text = ' '.join([str for str in text.split() if not any(i in str for i in emoji_list)])
+    return clean_text
+
+def lemmatization(text, allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV']):
+    """https://spacy.io/api/annotation"""
+    
+    doc = nlp(" ".join(text)) 
+    return [token.lemma_ for token in doc if token.pos_ in allowed_postags]
+
+nlp = spacy.load('en', disable=['parser', 'ner'])
+tknz = TweetTokenizer()
+replacer = RegexReplacer()
+
+# Custom stopwords
+custom_stopwords = ['hi','\n','\n\n', '&amp;', ' ', '.', '-', 'got', "it's", 'it’s', "i'm", 'i’m', 'im', 'want', 'like', '$', '@']
+# Customize stop words by adding to the default list
+STOP_WORDS = nlp.Defaults.stop_words.union(custom_stopwords)
+# ALL_STOP_WORDS = spacy + gensim + wordcloud
+ALL_STOP_WORDS = STOP_WORDS.union(SW).union(stopwords)
+
+# punctuation
+punc = string.punctuation
+
+def normalize(doc):
+    
+    for i in range(len(doc)):
+        
+        doc[i] = give_emoji_free_text(doc[i])
+        
+        #Tokenize with replacement
+        doc[i] = tknz.tokenize(replacer.replace(doc[i]))
+        
+        #Filter stopwords, punctuations, and lowercase
+        doc[i] = [w.lower() for w in doc[i] if w not in punc and w not in ALL_STOP_WORDS]
+        
+        # Lemmatize
+        
+        doc[i] = lemmatization(doc[i], allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV'])
+
+    return doc
+
+t_train_processed = normalize(t_train)
+
+t_train_processed[0]
+
+t_train_processed = np.array(t_train_processed)
+t_train_processed = np.expand_dims(t_train_processed, 1)
+
+combine_arr = np.concatenate((t_train_processed, labels_train.T), axis=1)
+
+df = pd.DataFrame(combine_arr, columns=['tweets', 'gender', 'country'])
+
+df.gender = df.gender.map(GENDER_MAP)
+df.country = df.country.map(COUNTRY_MAP)
+
+df 
+
+df.to_pickle('Data/processed_train_data.pkl')
+
+
