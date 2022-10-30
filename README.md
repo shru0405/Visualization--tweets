@@ -3,7 +3,7 @@ Distinguish Gender in Tweets and Present them in an Interactive HTML Scatter Plo
 
 Using Scattertext library to plot in a interactive HTML scattertext:
 
-1.Import the data from Kaggle:
+1.Import the data:
 #?
 
 2.Visualizing word associations using Scattertext.
