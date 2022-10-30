@@ -73,6 +73,7 @@ term_category_scores.head(10)
 term_ranks = np.argsort(np.argsort(-term_category_scores, axis=0), axis=0) + 1
 
 # Text displayed when a term is clicked
+
 metadata_descriptions = {
     term: '<br/>' + '<br/>'.join(
         '<b>%s</b> TextRank score rank: %s/%s' % (cat, term_ranks.loc[term, cat], corpus.get_num_metadata())
